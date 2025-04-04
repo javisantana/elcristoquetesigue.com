@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Fast Issue Tracker</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; max-width: 600px; }
+    input, button, textarea { font-size: 14px; }
+    .issue { border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; }
+    .closed { opacity: 0.5; text-decoration: line-through; }
+    .controls { margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Fast Issue Tracker</h1>
+  <input id="title" placeholder="Issue title" />
+  <textarea id="desc" placeholder="Issue description"></textarea>
+  <button onclick="addIssue()">Add Issue</button>
+  <hr>
+  <div id="issues"></div>
+
+  <script>
+    const STORAGE_KEY = "fast-issue-tracker";
+    const CHANGE_LOG_KEY = "fast-issue-tracker-changelog";
+
+    const uuid = () => crypto.randomUUID();
+
+    const getIssues = () => JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+    const getChangeLog = () => JSON.parse(localStorage.getItem(CHANGE_LOG_KEY) || "[]");
+
+    const save = (issues, changelog) => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(issues));
+      localStorage.setItem(CHANGE_LOG_KEY, JSON.stringify(changelog));
+    };
+
+    const render = () => {
+      const issues = getIssues();
+      const container = document.getElementById("issues");
+      container.innerHTML = "";
+      Object.entries(issues).forEach(([id, issue]) => {
+        const div = document.createElement("div");
+        div.className = "issue" + (issue.closed ? " closed" : "");
+        div.innerHTML = `
+          <strong>${issue.title}</strong><br>
+          <small>${issue.description}</small><br>
+          <div class="controls">
+            ${!issue.closed ? `<button onclick="closeIssue('${id}')">Close</button>` : ""}
+            <button onclick="deleteIssue('${id}')">Delete</button>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+    };
+
+    const logChange = (type, payload) => {
+      const changelog = getChangeLog();
+      changelog.push({ messageId: uuid(), timestamp: Date.now(), type, payload });
+      return changelog;
+    };
+
+    const addIssue = () => {
+      const title = document.getElementById("title").value.trim();
+      const description = document.getElementById("desc").value.trim();
+      if (!title) return;
+      const id = uuid();
+      const issues = getIssues();
+      issues[id] = { title, description, closed: false };
+      const changelog = logChange("add", { id, title, description });
+      save(issues, changelog);
+      render();
+      document.getElementById("title").value = "";
+      document.getElementById("desc").value = "";
+    };
+
+    const closeIssue = (id) => {
+      const issues = getIssues();
+      if (!issues[id]) return;
+      issues[id].closed = true;
+      const changelog = logChange("close", { id });
+      save(issues, changelog);
+      render();
+    };
+
+    const deleteIssue = (id) => {
+      const issues = getIssues();
+      if (!issues[id]) return;
+      delete issues[id];
+      const changelog = logChange("delete", { id });
+      save(issues, changelog);
+      render();
+    };
+
+    render();
+  </script>
+</body>
+</html>
