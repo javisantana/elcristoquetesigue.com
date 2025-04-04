@@ -66,12 +66,12 @@
       Object.entries(issues).forEach(([id, issue]) => {
         const div = document.createElement("div");
         div.className = "issue" + (issue.closed ? " closed" : "");
-        div.innerHTML = \`
+        div.innerHTML = `
           <strong>\${issue.title}</strong><br>
           <small>\${issue.description}</small><br>
           <button onclick="closeIssue('\${id}')">Close</button>
           <button onclick="deleteIssue('\${id}')">Delete</button>
-        \`;
+        `;
         container.appendChild(div);
       });
     };
