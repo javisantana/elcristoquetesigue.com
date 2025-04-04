@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>P2P Issue Tracker (Vanilla WebRTC)</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; max-width: 700px; }
+    input, textarea, button { font-size: 14px; margin-top: 4px; display: block; }
+    .issue { border: 1px solid #ccc; padding: 10px; margin-top: 10px; }
+    .closed { opacity: 0.6; text-decoration: line-through; }
+    textarea { width: 100%; height: 60px; }
+    pre { background: #f5f5f5; padding: 10px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>P2P Issue Tracker</h1>
+  <input id="title" placeholder="Issue title">
+  <textarea id="desc" placeholder="Issue description"></textarea>
+  <button onclick="addIssue()">Add Issue</button>
+
+  <h3>Issues</h3>
+  <div id="issues"></div>
+
+  <hr>
+  <h3>Manual WebRTC Connection</h3>
+  <button onclick="createOffer()">Create Offer</button>
+  <button onclick="createAnswer()">Create Answer</button>
+  <textarea id="signal" placeholder="Paste offer/answer here"></textarea>
+  <button onclick="applySignal()">Apply Remote Signal</button>
+  <pre id="localDesc"></pre>
+
+  <script>
+    const STORAGE_KEY = "p2p-issue-tracker";
+    const CHANGE_LOG_KEY = "p2p-issue-tracker-log";
+
+    const uuid = () => crypto.randomUUID();
+    const getIssues = () => JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+    const getChangeLog = () => JSON.parse(localStorage.getItem(CHANGE_LOG_KEY) || "[]");
+    const seenMessages = new Set(getChangeLog().map(c => c.messageId));
+    let dataChannel = null;
+
+    const save = (issues, changelog) => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(issues));
+      localStorage.setItem(CHANGE_LOG_KEY, JSON.stringify(changelog));
+    };
+
+    const logChange = (type, payload) => {
+      const change = { messageId: uuid(), timestamp: Date.now(), type, payload };
+      const log = getChangeLog();
+      log.push(change);
+      seenMessages.add(change.messageId);
+      localStorage.setItem(CHANGE_LOG_KEY, JSON.stringify(log));
+      return change;
+    };
+
+    const broadcast = (change) => {
+      if (dataChannel && dataChannel.readyState === "open") {
+        dataChannel.send(JSON.stringify(change));
+      }
+    };
+
+    const render = () => {
+      const container = document.getElementById("issues");
+      container.innerHTML = "";
+      const issues = getIssues();
+      Object.entries(issues).forEach(([id, issue]) => {
+        const div = document.createElement("div");
+        div.className = "issue" + (issue.closed ? " closed" : "");
+        div.innerHTML = \`
+          <strong>\${issue.title}</strong><br>
+          <small>\${issue.description}</small><br>
+          <button onclick="closeIssue('\${id}')">Close</button>
+          <button onclick="deleteIssue('\${id}')">Delete</button>
+        \`;
+        container.appendChild(div);
+      });
+    };
+
+    const addIssue = () => {
+      const title = document.getElementById("title").value.trim();
+      const description = document.getElementById("desc").value.trim();
+      if (!title) return;
+      const id = uuid();
+      const issues = getIssues();
+      issues[id] = { title, description, closed: false };
+      const change = logChange("add", { id, title, description });
+      save(issues, getChangeLog());
+      broadcast(change);
+      render();
+      document.getElementById("title").value = "";
+      document.getElementById("desc").value = "";
+    };
+
+    const closeIssue = (id) => {
+      const issues = getIssues();
+      if (!issues[id]) return;
+      issues[id].closed = true;
+      const change = logChange("close", { id });
+      save(issues, getChangeLog());
+      broadcast(change);
+      render();
+    };
+
+    const deleteIssue = (id) => {
+      const issues = getIssues();
+      if (!issues[id]) return;
+      delete issues[id];
+      const change = logChange("delete", { id });
+      save(issues, getChangeLog());
+      broadcast(change);
+      render();
+    };
+
+    const applyChange = (change) => {
+      if (seenMessages.has(change.messageId)) return;
+      seenMessages.add(change.messageId);
+      const issues = getIssues();
+      const log = getChangeLog();
+      log.push(change);
+
+      if (change.type === "add") {
+        issues[change.payload.id] = {
+          title: change.payload.title,
+          description: change.payload.description,
+          closed: false
+        };
+      } else if (change.type === "close" && issues[change.payload.id]) {
+        issues[change.payload.id].closed = true;
+      } else if (change.type === "delete") {
+        delete issues[change.payload.id];
+      }
+
+      save(issues, log);
+      render();
+    };
+
+    // WebRTC boilerplate
+    const pc = new RTCPeerConnection();
+    dataChannel = pc.createDataChannel("issues");
+
+    dataChannel.onmessage = (event) => {
+      const change = JSON.parse(event.data);
+      applyChange(change);
+    };
+
+    pc.ondatachannel = (event) => {
+      dataChannel = event.channel;
+      dataChannel.onmessage = (event) => {
+        const change = JSON.parse(event.data);
+        applyChange(change);
+      };
+    };
+
+    async function createOffer() {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      document.getElementById("localDesc").textContent = JSON.stringify(pc.localDescription);
+    }
+
+    async function createAnswer() {
+      const offer = JSON.parse(document.getElementById("signal").value);
+      await pc.setRemoteDescription(offer);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      document.getElementById("localDesc").textContent = JSON.stringify(pc.localDescription);
+    }
+
+    async function applySignal() {
+      const answer = JSON.parse(document.getElementById("signal").value);
+      await pc.setRemoteDescription(answer);
+    }
+
+    render();
+  </script>
+</body>
+</html>
